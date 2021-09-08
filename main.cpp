@@ -16,6 +16,11 @@ namespace uarch
             __builtin_prefetch(pointer);
         }
 
+        void prefetch_write(const void *pointer)
+        {
+            __builtin_prefetch(pointer, 1);
+        }
+
         static inline std::uint64_t start_timed()
         {
             unsigned cycles_low, cycles_high;
@@ -48,8 +53,8 @@ namespace uarch
             return ((std::uint64_t)cycles_high << 32) | cycles_low;
         }
 
-        auto compute_timing_overhead()
-        {            
+        auto __attribute__((noinline)) compute_timing_overhead()
+        {
             std::vector<std::uint64_t> times(sample_size);
             for (int i{}; i < sample_size; ++i)
             {
@@ -65,8 +70,8 @@ namespace uarch
             return average;
         }
 
-        auto do_single_cycle_test()
-        {            
+        auto __attribute__((noinline)) do_single_cycle_test()
+        {
             std::vector<std::uint64_t> times(sample_size);
             for (int i{}; i < sample_size; ++i)
             {
@@ -108,11 +113,11 @@ namespace uarch
             return t + state->counter;
         }
 
-        auto time_prefetch1()
-        {            
+        auto __attribute__((noinline)) time_prefetch1()
+        {
             std::vector<std::uint64_t> times(sample_size);
             std::vector<char> bytes(1ull << 32);
-            xorwow_state state {};
+            xorwow_state state{};
             state.x[0] = 0xdeadbeef;
             for (int i{}; i < sample_size; ++i)
             {
@@ -130,11 +135,11 @@ namespace uarch
             return average;
         }
 
-        auto time_prefetch2()
-        {            
+        auto __attribute__((noinline)) time_prefetch2()
+        {
             std::vector<std::uint64_t> times(sample_size);
             std::vector<char> bytes(1ull << 32);
-            xorwow_state state {};
+            xorwow_state state{};
             state.x[0] = 0xdeadbeef;
             for (int i{}; i < sample_size; ++i)
             {
@@ -155,11 +160,11 @@ namespace uarch
             return average;
         }
 
-        auto time_prefetch3()
-        {            
+        auto __attribute__((noinline)) time_prefetch3()
+        {
             std::vector<std::uint64_t> times(sample_size);
             std::vector<char> bytes(1ull << 32);
-            xorwow_state state {};
+            xorwow_state state{};
             state.x[0] = 0xdeadbeef;
             for (int i{}; i < sample_size; ++i)
             {
@@ -183,11 +188,11 @@ namespace uarch
             return average;
         }
 
-        auto time_prefetch4()
-        {            
+        auto __attribute__((noinline)) time_prefetch4()
+        {
             std::vector<std::uint64_t> times(sample_size);
             std::vector<char> bytes(1ull << 32);
-            xorwow_state state {};
+            xorwow_state state{};
             state.x[0] = 0xdeadbeef;
             for (int i{}; i < sample_size; ++i)
             {
@@ -214,11 +219,11 @@ namespace uarch
             return average;
         }
 
-        auto time_prefetch5()
-        {            
+        auto __attribute__((noinline)) time_prefetch5()
+        {
             std::vector<std::uint64_t> times(sample_size);
             std::vector<char> bytes(1ull << 32);
-            xorwow_state state {};
+            xorwow_state state{};
             state.x[0] = 0xdeadbeef;
             for (int i{}; i < sample_size; ++i)
             {
@@ -248,11 +253,11 @@ namespace uarch
             return average;
         }
 
-        auto time_prefetch6()
-        {            
+        auto __attribute__((noinline)) time_prefetch6()
+        {
             std::vector<std::uint64_t> times(sample_size);
             std::vector<char> bytes(1ull << 32);
-            xorwow_state state {};
+            xorwow_state state{};
             state.x[0] = 0xdeadbeef;
             for (int i{}; i < sample_size; ++i)
             {
@@ -285,11 +290,51 @@ namespace uarch
             return average;
         }
 
-        auto time_prefetch_with_dependency()
-        {            
+        auto __attribute__((noinline)) time_prefetch7()
+        {
             std::vector<std::uint64_t> times(sample_size);
             std::vector<char> bytes(1ull << 32);
-            xorwow_state state {};
+            xorwow_state state{};
+            state.x[0] = 0xdeadbeef;
+            for (int i{}; i < sample_size; ++i)
+            {
+                const auto address1 = bytes.data() + (xorwow(&state) & ~(1ull << 32));
+                const auto address2 = bytes.data() + (xorwow(&state) & ~(1ull << 32));
+                const auto address3 = bytes.data() + (xorwow(&state) & ~(1ull << 32));
+                const auto address4 = bytes.data() + (xorwow(&state) & ~(1ull << 32));
+                const auto address5 = bytes.data() + (xorwow(&state) & ~(1ull << 32));
+                const auto address6 = bytes.data() + (xorwow(&state) & ~(1ull << 32));
+                const auto address7 = bytes.data() + (xorwow(&state) & ~(1ull << 32));
+                const auto start = start_timed();
+                prefetch_read(address1);
+                prefetch_read(address2);
+                prefetch_read(address3);
+                prefetch_read(address4);
+                prefetch_read(address5);
+                prefetch_read(address6);
+                prefetch_read(address7);
+                const auto end = end_timed();
+                volatile auto foo = *address1;
+                foo = *address2;
+                foo = *address3;
+                foo = *address4;
+                foo = *address5;
+                foo = *address6;
+                foo = *address7;
+                times.at(i) = end - start;
+            }
+
+            const auto sum = std::accumulate(times.begin(), times.end(), 0);
+            const auto average = static_cast<double>(sum) / sample_size;
+
+            return average;
+        }
+
+        auto __attribute__((noinline)) time_prefetch_with_dependency()
+        {
+            std::vector<std::uint64_t> times(sample_size);
+            std::vector<char> bytes(1ull << 32);
+            xorwow_state state{};
             state.x[0] = 0xdeadbeef;
             for (int i{}; i < sample_size; ++i)
             {
@@ -307,6 +352,60 @@ namespace uarch
 
             return average;
         }
+
+        struct alignas(64) cache_line {
+            std::uint8_t padding[64];
+        };
+
+        auto __attribute__((noinline)) do_prefetch_saturation()
+        {
+            std::vector<cache_line> cache_lines(1 << 26);
+            xorwow_state state{};
+            state.x[0] = 0xdeadbeef;
+
+            std::vector<const cache_line *> adresses(sample_size);
+            for (auto &address : adresses) {
+                const auto offset = xorwow(&state) % cache_lines.size();
+                address = cache_lines.data() + offset;
+            }
+
+            for (auto &address : adresses)
+                const volatile auto foo = *address;
+
+            const auto start = start_timed();
+            for (int i{}; i < sample_size; ++i)
+                prefetch_write(adresses.at(i));
+
+            const auto end = end_timed();
+            const auto average = static_cast<double>(end - start) / sample_size;
+            std::cout << "Averaged " << average << " cycles / prefetch iteration\n";
+        }
+
+        void do_prefetch_run_tests()
+        {
+            const auto timing_overhead = compute_timing_overhead();
+            const auto nop_times = do_single_cycle_test();
+            const auto prefetch1_times = time_prefetch1();
+            const auto prefetch2_times = time_prefetch2();
+            const auto prefetch3_times = time_prefetch3();
+            const auto prefetch4_times = time_prefetch4();
+            const auto prefetch5_times = time_prefetch5();
+            const auto prefetch6_times = time_prefetch6();
+            const auto prefetch7_times = time_prefetch7();
+            const auto dependency_times = time_prefetch_with_dependency();
+            std::cout << "Averaged " << timing_overhead << " cycles of timing overhead\n";
+            std::cout << "Averaged " << nop_times << " cycles/nop\n";
+            std::cout << "Averaged " << prefetch1_times << " cycles/1-prefetch\n";
+            std::cout << "Averaged " << prefetch2_times << " cycles/2-prefetch\n";
+            std::cout << "Averaged " << prefetch3_times << " cycles/3-prefetch\n";
+            std::cout << "Averaged " << prefetch4_times << " cycles/4-prefetch\n";
+            std::cout << "Averaged " << prefetch5_times << " cycles/5-prefetch\n";
+            std::cout << "Averaged " << prefetch6_times << " cycles/6-prefetch\n";
+            std::cout << "Averaged " << prefetch7_times << " cycles/7-prefetch\n";
+            std::cout << prefetch2_times - prefetch1_times << ", " << prefetch3_times - prefetch2_times << ", " << prefetch4_times - prefetch3_times << ", " << prefetch5_times - prefetch4_times << ", " << prefetch6_times - prefetch5_times << " " << prefetch7_times - prefetch6_times << "\n";
+
+            std::cout << "Averaged " << dependency_times << " cycles/prefetch-with-read\n";
+        }
     }
 }
 
@@ -314,22 +413,6 @@ int main()
 {
     using namespace uarch;
 
-    const auto timing_overhead = compute_timing_overhead();
-    const auto nop_times = do_single_cycle_test() - timing_overhead;
-    const auto prefetch1_times = time_prefetch1() - timing_overhead;
-    const auto prefetch2_times = time_prefetch2() - timing_overhead;
-    const auto prefetch3_times = time_prefetch3() - timing_overhead;
-    const auto prefetch4_times = time_prefetch4() - timing_overhead;
-    const auto prefetch5_times = time_prefetch5() - timing_overhead;
-    const auto prefetch6_times = time_prefetch6() - timing_overhead;
-    const auto dependency_times = time_prefetch_with_dependency() - timing_overhead;
-    std::cout << "Averaged " << timing_overhead << " cycles of timing overhead\n";
-    std::cout << "Averaged " << nop_times << " cycles/nop\n";
-    std::cout << "Averaged " << prefetch1_times << " cycles/1-prefetch\n";
-    std::cout << "Averaged " << prefetch2_times << " cycles/2-prefetch\n";
-    std::cout << "Averaged " << prefetch3_times << " cycles/3-prefetch\n";
-    std::cout << "Averaged " << prefetch4_times << " cycles/4-prefetch\n";
-    std::cout << "Averaged " << prefetch5_times << " cycles/5-prefetch\n";
-    std::cout << "Averaged " << prefetch6_times << " cycles/6-prefetch\n";
-    std::cout << "Averaged " << dependency_times << " cycles/prefetch-with-read\n";
+    do_prefetch_saturation();
+    //do_prefetch_run_tests();
 }
