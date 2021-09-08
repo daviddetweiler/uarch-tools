@@ -353,28 +353,39 @@ namespace uarch
             return average;
         }
 
-        struct alignas(64) cache_line {
+        struct alignas(64) cache_line
+        {
             std::uint8_t padding[64];
         };
 
-        auto __attribute__((noinline)) do_prefetch_saturation()
+        auto __attribute__((noinline)) do_prefetch_saturation(bool should_touch, int bump_count)
         {
             std::vector<cache_line> cache_lines(1 << 26);
             xorwow_state state{};
             state.x[0] = 0xdeadbeef;
 
-            std::vector<const cache_line *> adresses(sample_size);
-            for (auto &address : adresses) {
+            std::vector<cache_line *> adresses(sample_size);
+            for (auto &address : adresses)
+            {
                 const auto offset = xorwow(&state) % cache_lines.size();
                 address = cache_lines.data() + offset;
             }
 
-            for (auto &address : adresses)
-                const volatile auto foo = *address;
+            if (should_touch)
+            {
+                for (auto &address : adresses)
+                    const volatile auto foo = *address;
+            }
 
             const auto start = start_timed();
             for (int i{}; i < sample_size; ++i)
-                prefetch_write(adresses.at(i));
+            {
+                prefetch_write(adresses[i]);
+                const auto offset = i - 16;
+                const auto elem = offset > 0 ? offset : 0;
+                for (int j{}; j < bump_count; ++j)
+                    adresses[elem]->padding[0]++;
+            }
 
             const auto end = end_timed();
             const auto average = static_cast<double>(end - start) / sample_size;
@@ -413,6 +424,12 @@ int main()
 {
     using namespace uarch;
 
-    do_prefetch_saturation();
+    for (int i{}; i < 16; ++i)
+    {
+        // TODO: one core can't issue requests fast enough to saturate the controller
+        std::cout << i << "\n";
+        do_prefetch_saturation(false, i);
+        do_prefetch_saturation(true, i);
+    }
     //do_prefetch_run_tests();
 }
