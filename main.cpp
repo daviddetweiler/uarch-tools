@@ -108,9 +108,7 @@ namespace uarch
 
             const auto start = start_timed();
             for (int i{}; i < sample_size; ++i)
-            {
                 prefetch_read(adresses[i]);
-            }
 
             const auto end = end_timed();
             const auto average = static_cast<double>(end - start) / sample_size;
@@ -130,6 +128,7 @@ int main()
     std::vector<std::uint64_t> cold_times(n_cores);
     std::atomic_bool start{};
     std::atomic_uint waiting{};
+
     for (int i{}; i < n_cores - 1; ++i)
     {
         threads.at(i) = std::thread{[&cold = cold_times.at(i), &waiting, &start]
@@ -138,7 +137,7 @@ int main()
                                         while (!start)
                                             _mm_pause();
 
-                                        cold = do_prefetch_saturation(false);
+                                        cold = do_prefetch_saturation(true);
                                     }};
     }
 
@@ -147,7 +146,7 @@ int main()
 
     start = true;
 
-    cold_times.back() = do_prefetch_saturation(false);
+    cold_times.back() = do_prefetch_saturation(true);
 
     for (auto &thread : threads)
         thread.join();
