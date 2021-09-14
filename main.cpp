@@ -11,7 +11,7 @@ namespace uarch
 {
     namespace
     {
-        constexpr auto sample_size = 10'000'000;
+        constexpr auto sample_size = 50'000'000;
 
         void prefetch_read(const void *pointer)
         {
@@ -106,9 +106,90 @@ namespace uarch
                 }
             }
 
+            volatile cache_line line {};
+            volatile cache_line lines[16] {};
+
             const auto start = start_timed();
-            for (int i{}; i < sample_size; ++i)
+            for (int i{}; i < sample_size; ++i) {
                 prefetch_read(adresses[i]);
+                // line.padding[0]++;
+                // line.padding[0]++;
+                // line.padding[0]++;
+                // line.padding[0]++;
+                // line.padding[0]++;
+                // line.padding[0]++;
+                // line.padding[0]++;
+                // line.padding[0]++;
+                // line.padding[0]++;
+                // line.padding[0]++;
+                // line.padding[0]++;
+                // line.padding[0]++;
+                // line.padding[0]++;
+                // line.padding[0]++;
+                // line.padding[0]++;
+                // line.padding[0]++;
+                // line.padding[0]++;
+                // line.padding[0]++;
+            
+                line.padding[0]++;
+                line.padding[1]++;
+                line.padding[2]++;
+                line.padding[3]++;
+                line.padding[4]++;
+                line.padding[5]++;
+                line.padding[6]++;
+                line.padding[7]++;
+                line.padding[8]++;
+                line.padding[9]++;
+                line.padding[10]++;
+                line.padding[11]++;
+                line.padding[12]++;
+                line.padding[13]++;
+                line.padding[14]++;
+                line.padding[15]++;
+                line.padding[16]++;
+                line.padding[17]++;
+
+                // asm volatile(
+                //     "push %rax\n\t"
+                //     "inc %rax\n\t"
+                //     "inc %rax\n\t"
+                //     "inc %rax\n\t"
+                //     "inc %rax\n\t"
+                //     "inc %rax\n\t"
+                //     "inc %rax\n\t"
+                //     "inc %rax\n\t"
+                //     "inc %rax\n\t"
+                //     "inc %rax\n\t"
+                //     "inc %rax\n\t"
+                //     "inc %rax\n\t"
+                //     "inc %rax\n\t"
+                //     "inc %rax\n\t"
+                //     "inc %rax\n\t"
+                //     "inc %rax\n\t"
+                //     "inc %rax\n\t"
+                //     "inc %rax\n\t"
+                //     "inc %rax\n\t"
+                //     "pop %rax\n\t"
+                // );
+
+                // lines[0].padding[0]++;
+                // lines[1].padding[0]++;
+                // lines[2].padding[0]++;
+                // lines[3].padding[0]++;
+                // lines[4].padding[0]++;
+                // lines[5].padding[0]++;
+                // lines[6].padding[0]++;
+                // lines[7].padding[0]++;
+                // lines[8].padding[0]++;
+                // lines[9].padding[0]++;
+                // lines[10].padding[0]++;
+                // lines[11].padding[0]++;
+                // lines[12].padding[0]++;
+                // lines[13].padding[0]++;
+                // lines[14].padding[0]++;
+                // lines[15].padding[0]++;            
+        }
 
             const auto end = end_timed();
             const auto average = static_cast<double>(end - start) / sample_size;
