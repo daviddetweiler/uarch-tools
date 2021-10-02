@@ -1,237 +1,255 @@
-#include <cstdint>
-#include <vector>
-#include <numeric>
-#include <iostream>
-#include <thread>
 #include <atomic>
+#include <cstdint>
+#include <iostream>
+#include <numeric>
+#include <thread>
+#include <vector>
 
+#ifndef _MSC_VER
 #include <x86intrin.h>
+#define NOINLINE __attribute__((noinline))
+#else
+#include <intrin.h>
+#define NOINLINE __declspec(noinline)
+#endif
 
-namespace uarch
-{
-    namespace
-    {
-        constexpr auto sample_size = 50'000'000;
+namespace uarch {
+	namespace {
+		constexpr auto sample_size = 50'000'000;
 
-        void prefetch_read(const void *pointer)
-        {
-            __builtin_prefetch(pointer);
-        }
+		void prefetch_read(const void* pointer)
+		{
+#ifndef _MSC_VER
+			__builtin_prefetch(pointer);
+#else
+			_m_prefetch(const_cast<void*>(pointer));
+#endif
+		}
 
-        void prefetch_write(const void *pointer)
-        {
-            __builtin_prefetch(pointer, 1);
-        }
+		void prefetch_write(const void* pointer)
+		{
+#ifndef _MSC_VER
+			__builtin_prefetch(pointer, 1);
+#else
+			_m_prefetchw(pointer);
+#endif
+		}
 
-        static inline std::uint64_t start_timed()
-        {
-            unsigned cycles_low, cycles_high;
+		static inline std::uint64_t start_timed()
+		{
+#ifndef _MSC_VER
+			unsigned cycles_low, cycles_high;
 
-            asm volatile(
-                "CPUID\n\t"
-                "RDTSC\n\t"
-                "mov %%edx, %0\n\t"
-                "mov %%eax, %1\n\t"
-                : "=r"(cycles_high), "=r"(cycles_low)::"%rax", "%rbx", "%rcx", "%rdx");
+			asm volatile("CPUID\n\t"
+						 "RDTSC\n\t"
+						 "mov %%edx, %0\n\t"
+						 "mov %%eax, %1\n\t"
+						 : "=r"(cycles_high), "=r"(cycles_low)::"%rax", "%rbx", "%rcx", "%rdx");
 
-            return ((std::uint64_t)cycles_high << 32) | cycles_low;
-        }
+			return ((std::uint64_t)cycles_high << 32) | cycles_low;
+#else
+			int values[4];
+			__cpuid(values, 0);
+			return __rdtsc();
+#endif
+		}
 
-        /**
-         * CITE:
-         * http://www.intel.com/content/www/us/en/embedded/training/ia-32-ia-64-benchmark-code-execution-paper.html
-         */
-        static inline std::uint64_t end_timed()
-        {
-            unsigned cycles_low, cycles_high;
+		/**
+		 * CITE:
+		 * http://www.intel.com/content/www/us/en/embedded/training/ia-32-ia-64-benchmark-code-execution-paper.html
+		 */
+		static inline std::uint64_t end_timed()
+		{
+#ifndef _MSC_VER
+			unsigned cycles_low, cycles_high;
 
-            asm volatile(
-                "RDTSCP\n\t"
-                "mov %%edx, %0\n\t"
-                "mov %%eax, %1\n\t"
-                "CPUID\n\t"
-                : "=r"(cycles_high), "=r"(cycles_low)::"%rax", "%rbx", "%rcx", "%rdx");
+			asm volatile("RDTSCP\n\t"
+						 "mov %%edx, %0\n\t"
+						 "mov %%eax, %1\n\t"
+						 "CPUID\n\t"
+						 : "=r"(cycles_high), "=r"(cycles_low)::"%rax", "%rbx", "%rcx", "%rdx");
 
-            return ((std::uint64_t)cycles_high << 32) | cycles_low;
-        }
+			return ((std::uint64_t)cycles_high << 32) | cycles_low;
+#else
+			unsigned int aux_value;
+			const auto timestamp = __rdtscp(&aux_value);
+			int values[4];
+			__cpuid(values, 0);
+			return timestamp;
+#endif
+		}
 
-        struct xorwow_state
-        {
-            uint32_t x[5];
-            uint32_t counter;
-        };
+		struct xorwow_state {
+			uint32_t x[5];
+			uint32_t counter;
+		};
 
-        /* The state array must be initialized to not be all zero in the first four words */
-        uint32_t xorwow(struct xorwow_state *state)
-        {
-            /* Algorithm "xorwow" from p. 5 of Marsaglia, "Xorshift RNGs" */
-            uint32_t t = state->x[4];
+		/* The state array must be initialized to not be all zero in the first four words */
+		uint32_t xorwow(struct xorwow_state* state)
+		{
+			/* Algorithm "xorwow" from p. 5 of Marsaglia, "Xorshift RNGs" */
+			uint32_t t = state->x[4];
 
-            uint32_t s = state->x[0]; /* Perform a contrived 32-bit shift. */
-            state->x[4] = state->x[3];
-            state->x[3] = state->x[2];
-            state->x[2] = state->x[1];
-            state->x[1] = s;
+			uint32_t s = state->x[0]; /* Perform a contrived 32-bit shift. */
+			state->x[4] = state->x[3];
+			state->x[3] = state->x[2];
+			state->x[2] = state->x[1];
+			state->x[1] = s;
 
-            t ^= t >> 2;
-            t ^= t << 1;
-            t ^= s ^ (s << 4);
-            state->x[0] = t;
-            state->counter += 362437;
-            return t + state->counter;
-        }
+			t ^= t >> 2;
+			t ^= t << 1;
+			t ^= s ^ (s << 4);
+			state->x[0] = t;
+			state->counter += 362437;
+			return t + state->counter;
+		}
 
-        struct alignas(64) cache_line
-        {
-            std::uint8_t padding[64];
-        };
+		struct alignas(64) cache_line {
+			std::uint8_t padding[64];
+		};
 
-        auto __attribute__((noinline)) do_prefetch_saturation(bool use_xorwow)
-        {
-            std::vector<cache_line> cache_lines(1 << 20);
-            xorwow_state state{};
-            state.x[0] = 0xdeadbeef;
+		auto NOINLINE do_prefetch_saturation(bool use_xorwow)
+		{
+			std::vector<cache_line> cache_lines(1 << 20);
+			xorwow_state state {};
+			state.x[0] = 0xdeadbeef;
 
-            std::vector<cache_line *> adresses(sample_size);
-            for (auto &address : adresses)
-            {
-                if (use_xorwow)
-                {
-                    const auto offset = xorwow(&state) % cache_lines.size();
-                    address = cache_lines.data() + offset;
-                }
-                else
-                {
-                    address = cache_lines.data();
-                }
-            }
+			std::vector<cache_line*> adresses(sample_size);
+			for (auto& address : adresses) {
+				if (use_xorwow) {
+					const auto offset = xorwow(&state) % cache_lines.size();
+					address = cache_lines.data() + offset;
+				}
+				else {
+					address = cache_lines.data();
+				}
+			}
 
-            volatile cache_line line {};
-            volatile cache_line lines[16] {};
+			volatile cache_line line {};
+			volatile cache_line lines[16] {};
 
-            const auto start = start_timed();
-            for (int i{}; i < sample_size; ++i) {
-                prefetch_read(adresses[i]);
-                // line.padding[0]++;
-                // line.padding[0]++;
-                // line.padding[0]++;
-                // line.padding[0]++;
-                // line.padding[0]++;
-                // line.padding[0]++;
-                // line.padding[0]++;
-                // line.padding[0]++;
-                // line.padding[0]++;
-                // line.padding[0]++;
-                // line.padding[0]++;
-                // line.padding[0]++;
-                // line.padding[0]++;
-                // line.padding[0]++;
-                // line.padding[0]++;
-                // line.padding[0]++;
-                // line.padding[0]++;
-                // line.padding[0]++;
-            
-                line.padding[0]++;
-                line.padding[1]++;
-                line.padding[2]++;
-                line.padding[3]++;
-                line.padding[4]++;
-                line.padding[5]++;
-                line.padding[6]++;
-                line.padding[7]++;
-                line.padding[8]++;
-                line.padding[9]++;
-                line.padding[10]++;
-                line.padding[11]++;
-                line.padding[12]++;
-                line.padding[13]++;
-                line.padding[14]++;
-                line.padding[15]++;
-                line.padding[16]++;
-                line.padding[17]++;
+			const auto start = start_timed();
+			for (int i {}; i < sample_size; ++i) {
+				prefetch_read(adresses[i]);
+				// line.padding[0]++;
+				// line.padding[0]++;
+				// line.padding[0]++;
+				// line.padding[0]++;
+				// line.padding[0]++;
+				// line.padding[0]++;
+				// line.padding[0]++;
+				// line.padding[0]++;
+				// line.padding[0]++;
+				// line.padding[0]++;
+				// line.padding[0]++;
+				// line.padding[0]++;
+				// line.padding[0]++;
+				// line.padding[0]++;
+				// line.padding[0]++;
+				// line.padding[0]++;
+				// line.padding[0]++;
+				// line.padding[0]++;
 
-                // asm volatile(
-                //     "push %rax\n\t"
-                //     "inc %rax\n\t"
-                //     "inc %rax\n\t"
-                //     "inc %rax\n\t"
-                //     "inc %rax\n\t"
-                //     "inc %rax\n\t"
-                //     "inc %rax\n\t"
-                //     "inc %rax\n\t"
-                //     "inc %rax\n\t"
-                //     "inc %rax\n\t"
-                //     "inc %rax\n\t"
-                //     "inc %rax\n\t"
-                //     "inc %rax\n\t"
-                //     "inc %rax\n\t"
-                //     "inc %rax\n\t"
-                //     "inc %rax\n\t"
-                //     "inc %rax\n\t"
-                //     "inc %rax\n\t"
-                //     "inc %rax\n\t"
-                //     "pop %rax\n\t"
-                // );
+				line.padding[0]++;
+				line.padding[1]++;
+				line.padding[2]++;
+				line.padding[3]++;
+				line.padding[4]++;
+				line.padding[5]++;
+				line.padding[6]++;
+				line.padding[7]++;
+				line.padding[8]++;
+				line.padding[9]++;
+				line.padding[10]++;
+				line.padding[11]++;
+				line.padding[12]++;
+				line.padding[13]++;
+				line.padding[14]++;
+				line.padding[15]++;
+				line.padding[16]++;
+				line.padding[17]++;
 
-                // lines[0].padding[0]++;
-                // lines[1].padding[0]++;
-                // lines[2].padding[0]++;
-                // lines[3].padding[0]++;
-                // lines[4].padding[0]++;
-                // lines[5].padding[0]++;
-                // lines[6].padding[0]++;
-                // lines[7].padding[0]++;
-                // lines[8].padding[0]++;
-                // lines[9].padding[0]++;
-                // lines[10].padding[0]++;
-                // lines[11].padding[0]++;
-                // lines[12].padding[0]++;
-                // lines[13].padding[0]++;
-                // lines[14].padding[0]++;
-                // lines[15].padding[0]++;            
-        }
+				// asm volatile(
+				//     "push %rax\n\t"
+				//     "inc %rax\n\t"
+				//     "inc %rax\n\t"
+				//     "inc %rax\n\t"
+				//     "inc %rax\n\t"
+				//     "inc %rax\n\t"
+				//     "inc %rax\n\t"
+				//     "inc %rax\n\t"
+				//     "inc %rax\n\t"
+				//     "inc %rax\n\t"
+				//     "inc %rax\n\t"
+				//     "inc %rax\n\t"
+				//     "inc %rax\n\t"
+				//     "inc %rax\n\t"
+				//     "inc %rax\n\t"
+				//     "inc %rax\n\t"
+				//     "inc %rax\n\t"
+				//     "inc %rax\n\t"
+				//     "inc %rax\n\t"
+				//     "pop %rax\n\t"
+				// );
 
-            const auto end = end_timed();
-            const auto average = static_cast<double>(end - start) / sample_size;
+				// lines[0].padding[0]++;
+				// lines[1].padding[0]++;
+				// lines[2].padding[0]++;
+				// lines[3].padding[0]++;
+				// lines[4].padding[0]++;
+				// lines[5].padding[0]++;
+				// lines[6].padding[0]++;
+				// lines[7].padding[0]++;
+				// lines[8].padding[0]++;
+				// lines[9].padding[0]++;
+				// lines[10].padding[0]++;
+				// lines[11].padding[0]++;
+				// lines[12].padding[0]++;
+				// lines[13].padding[0]++;
+				// lines[14].padding[0]++;
+				// lines[15].padding[0]++;
+			}
 
-            return average;
-        }
+			const auto end = end_timed();
+			const auto average = static_cast<double>(end - start) / sample_size;
 
-    }
+			return average;
+		}
+
+	}
 }
 
 int main()
 {
-    using namespace uarch;
+	using namespace uarch;
 
-    const auto n_cores = std::thread::hardware_concurrency();
-    std::vector<std::thread> threads(n_cores - 1);
-    std::vector<std::uint64_t> cold_times(n_cores);
-    std::atomic_bool start{};
-    std::atomic_uint waiting{};
+	constexpr auto use_randomized = false;
+	const auto n_cores = std::thread::hardware_concurrency();
+	std::vector<std::thread> threads(n_cores - 1);
+	std::vector<double> cold_times(n_cores);
+	std::atomic_bool start {};
+	std::atomic_uint waiting {};
 
-    for (int i{}; i < n_cores - 1; ++i)
-    {
-        threads.at(i) = std::thread{[&cold = cold_times.at(i), &waiting, &start]
-                                    {
-                                        ++waiting;
-                                        while (!start)
-                                            _mm_pause();
+	for (unsigned int i {}; i < n_cores - 1; ++i) {
+		threads.at(i) = std::thread {[&cold = cold_times.at(i), &waiting, &start, use_randomized] {
+			++waiting;
+			while (!start)
+				_mm_pause();
 
-                                        cold = do_prefetch_saturation(true);
-                                    }};
-    }
+			cold = do_prefetch_saturation(use_randomized);
+		}};
+	}
 
-    while (waiting < n_cores - 1)
-        _mm_pause();
+	while (waiting < n_cores - 1)
+		_mm_pause();
 
-    start = true;
+	start = true;
 
-    cold_times.back() = do_prefetch_saturation(true);
+	cold_times.back() = do_prefetch_saturation(use_randomized);
 
-    for (auto &thread : threads)
-        thread.join();
+	for (auto& thread : threads)
+		thread.join();
 
-    const auto cold_average = std::accumulate(cold_times.begin(), cold_times.end(), 0) / n_cores;
-    std::cout << cold_average << " cycles/op\n";
+	const auto cold_average = std::accumulate(cold_times.begin(), cold_times.end(), 0.0) / n_cores;
+	std::cout << cold_average << " cycles/op\n";
 }
