@@ -15,7 +15,7 @@
 
 namespace uarch {
 	namespace {
-		constexpr auto sample_size = 50'000'000;
+		constexpr auto sample_size = 10'000'000;
 
 		void prefetch_read(const void* pointer)
 		{
@@ -223,7 +223,7 @@ int main()
 {
 	using namespace uarch;
 
-	constexpr auto use_randomized = false;
+	constexpr auto use_randomized = true;
 	const auto n_cores = std::thread::hardware_concurrency();
 	std::vector<std::thread> threads(n_cores - 1);
 	std::vector<double> cold_times(n_cores);
