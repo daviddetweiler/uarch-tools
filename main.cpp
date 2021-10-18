@@ -15,7 +15,7 @@
 
 namespace uarch {
 	namespace {
-		constexpr auto sample_size = 100'000'000;
+		constexpr auto sample_size = 1'000'000'000;
 
 		void prefetch_read(const void* pointer)
 		{
@@ -108,11 +108,11 @@ namespace uarch {
 			std::uint8_t padding[64];
 		};
 
-		auto NOINLINE do_prefetch_saturation()
+		auto NOINLINE do_prefetch_saturation(uint32_t seed)
 		{
 			std::vector<cache_line> cache_lines(1 << 20);
 			xorwow_state state {};
-			state.x[0] = 0xdeadbeef;
+			state.x[0] = seed;
 
 			const auto start = start_timed();
 			for (int i {}; i < sample_size; ++i) {
@@ -139,13 +139,16 @@ int main()
 	std::atomic_bool start {};
 	std::atomic_uint waiting {};
 
+	xorwow_state state {};
+	state.x[0] = 0xdeadbeef;
+
 	for (unsigned int i {}; i < n_cores - 1; ++i) {
-		threads.at(i) = std::thread {[&cold = cold_times.at(i), &waiting, &start] {
+		threads.at(i) = std::thread {[&cold = cold_times.at(i), &waiting, &start, seed = xorwow(&state)] {
 			++waiting;
 			while (!start)
 				_mm_pause();
 
-			cold = do_prefetch_saturation();
+			cold = do_prefetch_saturation(seed);
 		}};
 	}
 
@@ -154,7 +157,7 @@ int main()
 
 	start = true;
 
-	cold_times.back() = do_prefetch_saturation();
+	cold_times.back() = do_prefetch_saturation(xorwow(&state));
 
 	for (auto& thread : threads)
 		thread.join();
