@@ -15,7 +15,7 @@
 
 namespace uarch {
 	namespace {
-		constexpr auto sample_size = 10'000'000;
+		constexpr auto sample_size = 100'000'000;
 
 		void prefetch_read(const void* pointer)
 		{
@@ -108,138 +108,16 @@ namespace uarch {
 			std::uint8_t padding[64];
 		};
 
-		void thrash_first_byte(volatile cache_line& line)
-		{
-			line.padding[0]++;
-			line.padding[0]++;
-			line.padding[0]++;
-			line.padding[0]++;
-			line.padding[0]++;
-			line.padding[0]++;
-			line.padding[0]++;
-			line.padding[0]++;
-			line.padding[0]++;
-			line.padding[0]++;
-			line.padding[0]++;
-			line.padding[0]++;
-			line.padding[0]++;
-			line.padding[0]++;
-			line.padding[0]++;
-			line.padding[0]++;
-			line.padding[0]++;
-		}
-
-		void thrash_line(volatile cache_line& line)
-		{
-			line.padding[0]++;
-			line.padding[1]++;
-			line.padding[2]++;
-			line.padding[3]++;
-			line.padding[4]++;
-			line.padding[5]++;
-			line.padding[6]++;
-			line.padding[7]++;
-			line.padding[8]++;
-			line.padding[9]++;
-			line.padding[10]++;
-			line.padding[11]++;
-			line.padding[12]++;
-			line.padding[13]++;
-			line.padding[14]++;
-			line.padding[15]++;
-			line.padding[16]++;
-		}
-
-		void thrash_register()
-		{
-			asm volatile("push %rax\n\t"
-						 "inc %rax\n\t"
-						 "inc %rax\n\t"
-						 "inc %rax\n\t"
-						 "inc %rax\n\t"
-						 "inc %rax\n\t"
-						 "inc %rax\n\t"
-						 "inc %rax\n\t"
-						 "inc %rax\n\t"
-						 "inc %rax\n\t"
-						 "inc %rax\n\t"
-						 "inc %rax\n\t"
-						 "inc %rax\n\t"
-						 "inc %rax\n\t"
-						 "inc %rax\n\t"
-						 "inc %rax\n\t"
-						 "inc %rax\n\t"
-						 "inc %rax\n\t"
-						 "inc %rax\n\t"
-						 "pop %rax\n\t");
-		}
-
-		void thrash_many_lines(volatile cache_line* lines)
-		{
-			lines[0].padding[0]++;
-			lines[1].padding[0]++;
-			lines[2].padding[0]++;
-			lines[3].padding[0]++;
-			lines[4].padding[0]++;
-			lines[5].padding[0]++;
-			lines[6].padding[0]++;
-			lines[7].padding[0]++;
-			lines[8].padding[0]++;
-			lines[9].padding[0]++;
-			lines[10].padding[0]++;
-			lines[11].padding[0]++;
-			lines[12].padding[0]++;
-			lines[13].padding[0]++;
-			lines[14].padding[0]++;
-			lines[15].padding[0]++;
-		}
-
-		enum class experiment_type { none, thrash_first_byte, thrash_line, thrash_register, thrash_many_lines };
-
-		auto NOINLINE do_prefetch_saturation(bool use_xorwow)
+		auto NOINLINE do_prefetch_saturation()
 		{
 			std::vector<cache_line> cache_lines(1 << 20);
 			xorwow_state state {};
 			state.x[0] = 0xdeadbeef;
 
-			std::vector<cache_line*> adresses(sample_size);
-			for (auto& address : adresses) {
-				if (use_xorwow) {
-					const auto offset = xorwow(&state) % cache_lines.size();
-					address = cache_lines.data() + offset;
-				}
-				else {
-					address = cache_lines.data();
-				}
-			}
-
-			constexpr auto experiment = experiment_type::none;
-			volatile cache_line line {};
-			volatile cache_line lines[16] {};
-
 			const auto start = start_timed();
 			for (int i {}; i < sample_size; ++i) {
-				prefetch_read(adresses[i]);
-				switch (experiment) {
-				case experiment_type::none:
-					break;
-
-				case experiment_type::thrash_line:
-					thrash_line(line);
-					break;
-
-				case experiment_type::thrash_first_byte:
-					thrash_first_byte(line);
-					break;
-
-				case experiment_type::thrash_many_lines:
-					thrash_many_lines(lines);
-					break;
-
-				case experiment_type::thrash_register:
-					thrash_register();
-					break;
-				}
+				const auto offset = xorwow(&state) % cache_lines.size();
+				prefetch_write(&cache_lines[offset]);
 			}
 
 			const auto end = end_timed();
@@ -255,7 +133,6 @@ int main()
 {
 	using namespace uarch;
 
-	constexpr auto use_randomized = true;
 	const auto n_cores = std::thread::hardware_concurrency();
 	std::vector<std::thread> threads(n_cores - 1);
 	std::vector<double> cold_times(n_cores);
@@ -263,12 +140,12 @@ int main()
 	std::atomic_uint waiting {};
 
 	for (unsigned int i {}; i < n_cores - 1; ++i) {
-		threads.at(i) = std::thread {[&cold = cold_times.at(i), &waiting, &start, use_randomized] {
+		threads.at(i) = std::thread {[&cold = cold_times.at(i), &waiting, &start] {
 			++waiting;
 			while (!start)
 				_mm_pause();
 
-			cold = do_prefetch_saturation(use_randomized);
+			cold = do_prefetch_saturation();
 		}};
 	}
 
@@ -277,7 +154,7 @@ int main()
 
 	start = true;
 
-	cold_times.back() = do_prefetch_saturation(use_randomized);
+	cold_times.back() = do_prefetch_saturation();
 
 	for (auto& thread : threads)
 		thread.join();
