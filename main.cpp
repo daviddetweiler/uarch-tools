@@ -15,7 +15,7 @@
 
 namespace uarch {
 	namespace {
-		constexpr auto sample_size = 1'000'000'000;
+		constexpr auto sample_size = 100'000'000;
 
 		void prefetch_read(const void* pointer)
 		{
@@ -108,16 +108,29 @@ namespace uarch {
 			std::uint8_t padding[64];
 		};
 
+		void NOINLINE noopt(cache_line*) {}
+
 		auto NOINLINE do_prefetch_saturation(uint32_t seed)
 		{
 			std::vector<cache_line> cache_lines(1 << 20);
 			xorwow_state state {};
 			state.x[0] = seed;
 
+			constexpr auto queue_len = 16;
+			static_assert((queue_len & (queue_len - 1)) == 0);
+			std::array<cache_line*, queue_len> queue {};
+			std::size_t queue_head {};
+
 			const auto start = start_timed();
 			for (int i {}; i < sample_size; ++i) {
 				const auto offset = xorwow(&state) % cache_lines.size();
-				prefetch_write(&cache_lines[offset]);
+				const auto current = &cache_lines[offset];
+				prefetch_write(current);
+				queue[(queue_head++) & (queue_len - 1)] = current;
+				if (queue_head >= queue_len) {
+					const auto last_line = queue[(queue_head - queue_len) & (queue_len - 1)];
+					last_line->padding[0] = 255;
+				}
 			}
 
 			const auto end = end_timed();
