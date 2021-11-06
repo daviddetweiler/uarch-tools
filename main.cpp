@@ -116,21 +116,22 @@ namespace uarch {
 			xorwow_state state {};
 			state.x[0] = seed;
 
-			constexpr auto queue_len = 16;
+			constexpr auto queue_len = 8;
 			static_assert((queue_len & (queue_len - 1)) == 0);
 			std::array<cache_line*, queue_len> queue {};
 			std::size_t queue_head {};
 
 			const auto start = start_timed();
 			for (int i {}; i < sample_size; ++i) {
-				const auto offset = xorwow(&state) % cache_lines.size();
+				const auto offset = i % cache_lines.size();
 				const auto current = &cache_lines[offset];
-				prefetch_write(current);
-				queue[(queue_head++) & (queue_len - 1)] = current;
-				if (queue_head >= queue_len) {
-					const auto last_line = queue[(queue_head - queue_len) & (queue_len - 1)];
-					last_line->padding[0] = 255;
-				}
+				current->padding[0] += 0xde;
+				// prefetch_write(current);
+				// queue[(queue_head++) & (queue_len - 1)] = current;
+				// if (queue_head >= queue_len) {
+				// 	const auto last_line = queue[(queue_head - queue_len) & (queue_len - 1)];
+				// 	last_line->padding[0] = 255;
+				// }
 			}
 
 			const auto end = end_timed();
