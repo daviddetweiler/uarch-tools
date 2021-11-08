@@ -15,7 +15,7 @@
 
 namespace uarch {
 	namespace {
-		constexpr auto sample_size = 100'000'000;
+		constexpr auto sample_size = 1ull << 24;
 
 		void prefetch_read(const void* pointer)
 		{
@@ -112,7 +112,7 @@ namespace uarch {
 
 		auto NOINLINE do_prefetch_saturation(uint32_t seed)
 		{
-			std::vector<cache_line> cache_lines(1 << 20);
+			std::vector<cache_line> cache_lines(sample_size);
 			xorwow_state state {};
 			state.x[0] = seed;
 
@@ -122,19 +122,27 @@ namespace uarch {
 			std::size_t queue_head {};
 
 			const auto start = start_timed();
-			for (int i {}; i < sample_size; ++i) {
-				const auto offset = xorwow(&state) % cache_lines.size();
-				const auto current = &cache_lines[offset];
-				prefetch_write(current);
-				queue[(queue_head++) & (queue_len - 1)] = current;
-				if (queue_head >= queue_len) {
-					const auto last_line = queue[(queue_head - queue_len) & (queue_len - 1)];
-					last_line->padding[0] = 255;
-				}
+			auto foo = 0;
+			for (int i {}; i < sample_size; i += 4) {
+				//const auto offset = i & (cache_lines.size() - 1);
+				const auto a = &cache_lines[i];
+				const auto b = &cache_lines[i+1];
+				const auto c = &cache_lines[i+2];
+				const auto d = &cache_lines[i+3];
+				//prefetch_write(current);
+				foo += a->padding[0] + b->padding[0] + c->padding[0] + d->padding[0];
+				
+				//queue[(queue_head++) & (queue_len - 1)] = current;
+				//if (queue_head >= queue_len) {
+				//	const auto last_line = queue[(queue_head - queue_len) & (queue_len - 1)];
+				//	foo += last_line->padding[0];
+				//}
 			}
 
 			const auto end = end_timed();
 			const auto average = static_cast<double>(end - start) / sample_size;
+
+			printf("%d", foo);
 
 			return average;
 		}
@@ -152,6 +160,8 @@ int main()
 	std::atomic_bool start {};
 	std::atomic_uint waiting {};
 
+	printf("threads: %d\n", n_cores);
+	
 	xorwow_state state {};
 	state.x[0] = 0xdeadbeef;
 
